@@ -236,6 +236,7 @@ def choose_movie_from_options(options):
         print("Invalid input. Using the first result.")
         return options[0]
 
+
 def main():
     print("Select a folder containing movie files:")
     folder_path = select_folder()
@@ -250,22 +251,32 @@ def main():
         print("No movie files found in the selected folder.")
         return
     
-    print(f"Found {len(movie_files)} movie files.")
+    # List to store the results of processing each movie
+    results = []
+
+    print(f"Found {len(movie_files)} movie files.\n")
     for file_path in movie_files:
         original_title = clean_filename(os.path.basename(file_path))
         print(f"Original Title: {original_title}")
         
-        search_results = search_correct_title(original_title)
-        if not search_results:
-            print(f"No search results found for {original_title}.")
-            continue
-        
-        movie_options = fetch_metadata_from_tmdb(original_title)
+        # Clean up the filename for search
+        search_query = extract_search_query(original_title)
+        movie_options = fetch_metadata_from_tmdb(search_query)
+
+        # If no movie options found, mark it as a failure
         if not movie_options:
-            print(f"No metadata found for {original_title}.")
+            print(f"No metadata found for {search_query}.")
+            results.append({'original': original_title, 'new': 'N/A', 'status': 'fail'})
             continue
         
-        selected_movie = choose_movie_from_options(movie_options)
+        # If only one option, select it automatically
+        if len(movie_options) == 1:
+            selected_movie = movie_options[0]
+            print(f"One movie found: {selected_movie['title']} ({selected_movie['release_year']})")
+        else:
+            # Otherwise, prompt the user to select from multiple options
+            selected_movie = choose_movie_from_options(movie_options)
+        
         movie_metadata = {
             'title': selected_movie.get('title', 'Unknown'),
             'release_year': selected_movie.get('release_year', 'Unknown'),
@@ -279,13 +290,29 @@ def main():
             'release_date': selected_movie.get('release_date', 'Unknown')
         }
 
-        # Open the movie file for metadata update
-        movie_file = MP4(file_path)
-        update_metadata(movie_file, movie_metadata, file_path)
+        try:
+            # Open the movie file for metadata update
+            movie_file = MP4(file_path)
+            update_metadata(movie_file, movie_metadata, file_path)
 
-        new_name = f"{movie_metadata.get('title', 'Unknown')} ({movie_metadata.get('release_year', 'Unknown')})"
-        rename_file(file_path, new_name)
+            # Rename the file to the new title (if applicable)
+            new_name = f"{movie_metadata.get('title', 'Unknown')} ({movie_metadata.get('release_year', 'Unknown')})"
+            rename_file(file_path, new_name)
 
-    
+            # Add to the results list as success
+            results.append({'original': original_title, 'new': new_name, 'status': 'success'})
+        except Exception as e:
+            # If there was an error, mark it as a failure
+            print(f"Error processing {original_title}: {e}")
+            results.append({'original': original_title, 'new': 'N/A', 'status': 'fail'})
+
+    # After processing all movies, display the results
+    print("\nSummary of Processed Movies:\n")
+    for result in results:
+        status_color = 'green' if result['status'] == 'success' else 'red'
+        print(colored(f"Original: {result['original']}", status_color))
+        print(colored(f"New: {result['new']}", status_color))
+        print(colored(f"Status: {result['status'].capitalize()}\n", status_color))
+
 if __name__ == "__main__":
     main()
