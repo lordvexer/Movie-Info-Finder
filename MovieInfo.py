@@ -3,7 +3,9 @@ import re
 import requests
 from tkinter import Tk, filedialog
 from googlesearch import search
-from mutagen.mp4 import MP4
+from mutagen.mp4 import MP4, MP4Tags
+from termcolor import colored  # Import for colored output
+
 
 def select_folder():
     root = Tk()
@@ -20,6 +22,31 @@ def find_movie_files(folder_path):
                 movie_files.append(os.path.join(root, file))
     return movie_files
 
+def extract_search_query(filename):
+    # Remove the file extension
+    base_name = os.path.splitext(filename)[0]
+    
+    # Replace common separators like underscores, hyphens, and dots with spaces
+    clean_name = re.sub(r'[\.\_\-]', ' ', base_name)
+    
+    # Remove known quality indicators, release group tags, and unnecessary terms
+    clean_name = re.sub(r'\b(480p|720p|1080p|HD|Hardsub|WEB-DL|BluRay|HDRip|x264|x265|DVDRip|CAMRip|YTS|RARBG|DigiMoviez|HD1080|Copy)\b', '', clean_name, flags=re.IGNORECASE)
+    
+    # Generalize the cleaning: keep only letters, numbers, and spaces
+    clean_name = re.sub(r'[^A-Za-z0-9\s]', '', clean_name)
+    
+    # Search for the title followed by a 4-digit year or part (e.g., "Part II")
+    match = re.search(r'([A-Za-z\s]+(?:Part\s*[IVXLCDM0-9]*)?)', clean_name)
+    
+    if match:
+        # If a match is found, format the title correctly
+        movie_title = match.group(1).strip()
+        return movie_title
+    else:
+        # If no proper match is found, return the cleaned name
+        return re.sub(r'\s+', ' ', clean_name).strip()
+
+
 def clean_filename(filename):
     filename = os.path.splitext(filename)[0]
     filename = re.sub(r'[\.\_\-]', ' ', filename)
@@ -34,25 +61,35 @@ def search_correct_title(query):
         print(f"Error searching Google: {e}")
     return []
 
-def fetch_metadata_from_tmdb(title):
+def fetch_metadata_from_tmdb(filename):
     api_key = '1c178512e84f5a65fcddfc9f3aaaa5ce'
-    search_url = f'https://api.themoviedb.org/3/search/movie?api_key={api_key}&query={title}'
+    
+    # Clean the filename to extract the movie title and year
+    clean_title = extract_search_query(filename)
+    
+    search_url = f'https://api.themoviedb.org/3/search/movie?api_key={api_key}&query={clean_title}'
     print(f"Request URL: {search_url}")
+    
     try:
         response = requests.get(search_url)
         response.raise_for_status()
         data = response.json()
         results = data.get('results', [])
         movie_data = []
+        
         for movie in results:
             movie_id = movie.get('id')
             movie_detail = fetch_movie_details_from_tmdb(movie_id, api_key)
             if movie_detail:
                 movie_data.append(movie_detail)
+        
         return movie_data
+    
     except requests.exceptions.RequestException as e:
         print(f"Error fetching metadata from TMDb: {e}")
+    
     return []
+
 
 def fetch_movie_details_from_tmdb(movie_id, api_key):
     movie_url = f'https://api.themoviedb.org/3/movie/{movie_id}?api_key={api_key}&append_to_response=credits'
@@ -62,18 +99,25 @@ def fetch_movie_details_from_tmdb(movie_id, api_key):
         movie = response.json()
         credits = movie.get('credits', {})
 
-        # Helper function to filter crew members by job title and return name with job title
         def filter_crew_by_job(crew_list, job_titles):
             job_titles = [job_title.lower() for job_title in job_titles]
-            return ', '.join([f"{member.get('name', 'Unknown')} ({member.get('job', 'Unknown')})"
-                              for member in crew_list if any(job_title in member.get('job', '').lower() for job_title in job_titles)])
+            filtered = [f"{member.get('name', 'Unknown')} ({member.get('job', 'Unknown')})"
+                        for member in crew_list if any(job_title in member.get('job', '').lower() for job_title in job_titles)]
+            return ', '.join(filtered)
 
-        # Get the original director (assuming there's only one main director)
         def get_director(crew_list):
             for member in crew_list:
                 if member.get('job') == 'Director':
                     return member.get('name', 'Unknown')
             return 'Unknown'
+
+        def get_producers(crew_list):
+            producers = [member.get('name', 'Unknown') for member in crew_list if member.get('job') == 'Producer']
+            return ', '.join(producers) if producers else 'Unknown'
+
+        def get_composers(crew_list):
+            composers = [member.get('name', 'Unknown') for member in crew_list if member.get('job') == 'Composer']
+            return ', '.join(composers) if composers else 'Unknown'
 
         return {
             'title': movie.get('title', 'Unknown'),
@@ -81,10 +125,10 @@ def fetch_movie_details_from_tmdb(movie_id, api_key):
             'genre': ', '.join([genre.get('name', 'Unknown') for genre in movie.get('genres', [])]),
             'overview': movie.get('overview', 'Unknown'),
             'director': get_director(credits.get('crew', [])),
-            'producer': filter_crew_by_job(credits.get('crew', []), ['Producer']),
+            'producer': get_producers(credits.get('crew', [])),
             'writers': filter_crew_by_job(credits.get('crew', []), ['Writer', 'Screenplay']),
             'cast': ', '.join([f"{member.get('name', 'Unknown')} ({member.get('character', 'Unknown')})" for member in credits.get('cast', [])[:5]]),
-            'composer': filter_crew_by_job(credits.get('crew', []), ['Composer']),
+            'composer': get_composers(credits.get('crew', [])),  # Updated for composers
             'rating': movie.get('vote_average', 'Unknown'),
             'release_date': movie.get('release_date', 'Unknown')
         }
@@ -93,14 +137,18 @@ def fetch_movie_details_from_tmdb(movie_id, api_key):
     return None
 
 
-
-
-
 def safe_str(value):
     try:
         return str(value) if value else 'Unknown'
-    except Exception as e:
+    except Exception:
         return 'Unknown'
+
+def convert_rating_to_stars(rating):
+    try:
+        rating_5_star = float(rating) / 2  # Convert rating from 0-10 scale to 0-5 scale
+        return f"{rating_5_star:.1f} / 5"  # Format rating as a string with 1 decimal place
+    except (ValueError, TypeError):
+        return "Unknown"
 
 def update_metadata(movie_file, metadata, file_path):
     try:
@@ -115,7 +163,7 @@ def update_metadata(movie_file, metadata, file_path):
         print(f"Writers: {safe_str(metadata.get('writers', 'Unknown'))}")
         print(f"Cast: {safe_str(metadata.get('cast', 'Unknown'))}")
         print(f"Composer: {safe_str(metadata.get('composer', 'Unknown'))}")
-        print(f"Rating: {safe_str(metadata.get('rating', 'Unknown'))}")
+        print(f"Rating: {convert_rating_to_stars(metadata.get('rating', 'Unknown'))}")
 
         # Ask the user to confirm
         confirm = input("\nDo you want to save this metadata to the file? (y/n): ").strip().lower()
@@ -129,18 +177,30 @@ def update_metadata(movie_file, metadata, file_path):
         movie_file['\xa9gen'] = safe_str(metadata.get('genre', 'Unknown'))  # Genre
         movie_file['\xa9cmt'] = safe_str(metadata.get('overview', 'Unknown'))  # Description/Overview
         movie_file['\xa9dir'] = safe_str(metadata.get('director', 'Unknown'))  # Director
-        movie_file['\xa9pro'] = safe_str(metadata.get('producer', 'Unknown'))  # Producer (if supported)
+        movie_file['\xa9pro'] = safe_str(metadata.get('producer', 'Unknown'))  # Producer
         movie_file['\xa9wrt'] = safe_str(metadata.get('writers', 'Unknown'))  # Writers
         movie_file['\xa9ART'] = safe_str(metadata.get('cast', 'Unknown'))  # Cast
         movie_file['\xa9com'] = safe_str(metadata.get('composer', 'Unknown'))  # Composer
-        movie_file['\xa9rtng'] = safe_str(metadata.get('rating', 'Unknown'))  # Rating
+        movie_file['\xa9rtng'] = convert_rating_to_stars(metadata.get('rating', 'Unknown'))  # Rating
 
         # Save changes
         movie_file.save()
         print(f"Metadata updated for {file_path}")
 
+        # Verify metadata
+        updated_file = MP4(file_path)
+        print("Updated Metadata:")
+        for tag, value in updated_file.items():
+            print(f"{tag}: {value}")
+
+    except FileNotFoundError:
+        print(f"Error: File not found: {file_path}")
+    except PermissionError:
+        print(f"Error: Permission denied when accessing the file: {file_path}")
     except Exception as e:
         print(f"Error updating metadata: {e}")
+
+
 
 def rename_file(file_path, new_name):
     folder, old_name = os.path.split(file_path)
@@ -225,6 +285,7 @@ def main():
 
         new_name = f"{movie_metadata.get('title', 'Unknown')} ({movie_metadata.get('release_year', 'Unknown')})"
         rename_file(file_path, new_name)
+
     
 if __name__ == "__main__":
     main()
