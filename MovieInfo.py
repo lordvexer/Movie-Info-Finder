@@ -4,7 +4,7 @@ import requests
 from tkinter import Tk, filedialog
 from googlesearch import search
 from mutagen.mp4 import MP4, MP4Tags
-from termcolor import colored  # Import for colored output
+from termcolor import colored  
 
 
 def select_folder():
@@ -23,27 +23,17 @@ def find_movie_files(folder_path):
     return movie_files
 
 def extract_search_query(filename):
-    # Remove the file extension
     base_name = os.path.splitext(filename)[0]
     
-    # Replace common separators like underscores, hyphens, and dots with spaces
     clean_name = re.sub(r'[\.\_\-]', ' ', base_name)
-    
-    # Remove known quality indicators, release group tags, and unnecessary terms
     clean_name = re.sub(r'\b(480p|720p|1080p|HD|Hardsub|WEB-DL|BluRay|HDRip|x264|x265|DVDRip|CAMRip|YTS|RARBG|DigiMoviez|HD1080|Copy)\b', '', clean_name, flags=re.IGNORECASE)
-    
-    # Generalize the cleaning: keep only letters, numbers, and spaces
     clean_name = re.sub(r'[^A-Za-z0-9\s]', '', clean_name)
-    
-    # Search for the title followed by a 4-digit year or part (e.g., "Part II")
     match = re.search(r'([A-Za-z\s]+(?:Part\s*[IVXLCDM0-9]*)?)', clean_name)
     
     if match:
-        # If a match is found, format the title correctly
         movie_title = match.group(1).strip()
         return movie_title
     else:
-        # If no proper match is found, return the cleaned name
         return re.sub(r'\s+', ' ', clean_name).strip()
 
 
@@ -64,7 +54,6 @@ def search_correct_title(query):
 def fetch_metadata_from_tmdb(filename):
     api_key = '1c178512e84f5a65fcddfc9f3aaaa5ce'
     
-    # Clean the filename to extract the movie title and year
     clean_title = extract_search_query(filename)
     
     search_url = f'https://api.themoviedb.org/3/search/movie?api_key={api_key}&query={clean_title}'
@@ -128,7 +117,7 @@ def fetch_movie_details_from_tmdb(movie_id, api_key):
             'producer': get_producers(credits.get('crew', [])),
             'writers': filter_crew_by_job(credits.get('crew', []), ['Writer', 'Screenplay']),
             'cast': ', '.join([f"{member.get('name', 'Unknown')} ({member.get('character', 'Unknown')})" for member in credits.get('cast', [])[:5]]),
-            'composer': get_composers(credits.get('crew', [])),  # Updated for composers
+            'composer': get_composers(credits.get('crew', [])),  
             'rating': movie.get('vote_average', 'Unknown'),
             'release_date': movie.get('release_date', 'Unknown')
         }
@@ -145,14 +134,13 @@ def safe_str(value):
 
 def convert_rating_to_stars(rating):
     try:
-        rating_5_star = float(rating) / 2  # Convert rating from 0-10 scale to 0-5 scale
-        return f"{rating_5_star:.1f} / 5"  # Format rating as a string with 1 decimal place
+        rating_5_star = float(rating) / 2  
+        return f"{rating_5_star:.1f} / 5" 
     except (ValueError, TypeError):
         return "Unknown"
 
 def update_metadata(movie_file, metadata, file_path):
     try:
-        # Display metadata to the user
         print("\nMetadata to be written:")
         print(f"Title: {safe_str(metadata.get('title', 'Unknown'))}")
         print(f"Release Year: {safe_str(metadata.get('release_year', 'Unknown'))}")
@@ -165,13 +153,11 @@ def update_metadata(movie_file, metadata, file_path):
         print(f"Composer: {safe_str(metadata.get('composer', 'Unknown'))}")
         print(f"Rating: {convert_rating_to_stars(metadata.get('rating', 'Unknown'))}")
 
-        # Ask the user to confirm
         confirm = input("\nDo you want to save this metadata to the file? (y/n): ").strip().lower()
         if confirm != 'y':
             print("Metadata update canceled.")
             return
 
-        # Update metadata
         movie_file['\xa9nam'] = safe_str(metadata.get('title', 'Unknown'))  # Title
         movie_file['\xa9day'] = safe_str(metadata.get('release_year', 'Unknown'))  # Release Year
         movie_file['\xa9gen'] = safe_str(metadata.get('genre', 'Unknown'))  # Genre
@@ -183,11 +169,9 @@ def update_metadata(movie_file, metadata, file_path):
         movie_file['\xa9com'] = safe_str(metadata.get('composer', 'Unknown'))  # Composer
         movie_file['\xa9rtng'] = convert_rating_to_stars(metadata.get('rating', 'Unknown'))  # Rating
 
-        # Save changes
         movie_file.save()
         print(f"Metadata updated for {file_path}")
 
-        # Verify metadata
         updated_file = MP4(file_path)
         print("Updated Metadata:")
         for tag, value in updated_file.items():
@@ -251,7 +235,6 @@ def main():
         print("No movie files found in the selected folder.")
         return
     
-    # List to store the results of processing each movie
     results = []
 
     print(f"Found {len(movie_files)} movie files.\n")
@@ -259,22 +242,18 @@ def main():
         original_title = clean_filename(os.path.basename(file_path))
         print(f"Original Title: {original_title}")
         
-        # Clean up the filename for search
         search_query = extract_search_query(original_title)
         movie_options = fetch_metadata_from_tmdb(search_query)
 
-        # If no movie options found, mark it as a failure
         if not movie_options:
             print(f"No metadata found for {search_query}.")
             results.append({'original': original_title, 'new': 'N/A', 'status': 'fail'})
             continue
         
-        # If only one option, select it automatically
         if len(movie_options) == 1:
             selected_movie = movie_options[0]
             print(f"One movie found: {selected_movie['title']} ({selected_movie['release_year']})")
         else:
-            # Otherwise, prompt the user to select from multiple options
             selected_movie = choose_movie_from_options(movie_options)
         
         movie_metadata = {
@@ -291,22 +270,17 @@ def main():
         }
 
         try:
-            # Open the movie file for metadata update
             movie_file = MP4(file_path)
             update_metadata(movie_file, movie_metadata, file_path)
 
-            # Rename the file to the new title (if applicable)
             new_name = f"{movie_metadata.get('title', 'Unknown')} ({movie_metadata.get('release_year', 'Unknown')})"
             rename_file(file_path, new_name)
 
-            # Add to the results list as success
             results.append({'original': original_title, 'new': new_name, 'status': 'success'})
         except Exception as e:
-            # If there was an error, mark it as a failure
             print(f"Error processing {original_title}: {e}")
             results.append({'original': original_title, 'new': 'N/A', 'status': 'fail'})
 
-    # After processing all movies, display the results
     print("\nSummary of Processed Movies:\n")
     for result in results:
         status_color = 'green' if result['status'] == 'success' else 'red'
