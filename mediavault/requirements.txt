@@ -1,0 +1,8 @@
+PySide6>=6.7
+requests>=2.31
+rapidfuzz>=3.9
+mutagen>=1.47
+python-dotenv>=1.0
+python-vlc>=3.0.20
+sqlalchemy>=2.0.30
+python-dotenv

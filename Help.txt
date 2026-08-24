@@ -1,0 +1,9 @@
+Install ffprobe ON PC First
+- winget install -e --id Gyan.FFmpeg --source winget
+
+RUN Terminal From FILMINFO
+- python -m mediavault.app.main_window
+
+OR
+
+- python -m mediavault.app.main_window
